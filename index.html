@@ -32,7 +32,7 @@ img.prev{max-width:100%;border-radius:10px;margin-top:8px}.small{font-size:12px;
 .progress{height:8px;background:#e2e8e4;border-radius:8px;overflow:hidden}.progress i{display:block;height:100%;background:#0e9f6e}
 @media(min-width:700px){.modal{align-items:center}.modal>div{border-radius:18px}}
 </style></head><body>
-<header class="top"><div><b>BoostLoop</b><small>Follow. Earn. Grow. Repeat.</small></div><div class="row"><span id="balTop" class="muted" style="color:#fff"></span><button class="bell" onclick="showPage('notifications')">🔔 <i id="bellCount" style="display:none">0</i></button><button class="bell" onclick="signOutUser()">Sign out</button></div></header>
+<header class="top"><div><b>BoostLoop</b><small>Follow. Earn. Grow. Repeat.</small></div><div class="row"><span id="balTop" class="muted" style="color:#fff"></span><button class="bell" onclick="showPage('notifications')">🔔 <i id="bellCount" style="display:none">0</i></button><button class="bell" id="authBtn" onclick="headerAuth()">Sign in</button></div></header>
 <main class="wrap"><div id="bannerAd"></div><div id="annBanner"></div><div id="page"></div><div id="errBox"></div></main>
 <nav class="nav" id="bottomNav">
 <button onclick="go('#/loop')"><span>🔁</span>Loop</button>
@@ -44,11 +44,12 @@ img.prev{max-width:100%;border-radius:10px;margin-top:8px}.small{font-size:12px;
 <div id="modalBox"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,getDoc,setDoc,updateDoc,addDoc,collection,query,where,orderBy,limit,getDocs,onSnapshot,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const firebaseConfig = {"apiKey": "AIzaSyDPxPOZqkDTB43Frc9p5o33esys0zvgHUY", "authDomain": "kinza-digital-hub.firebaseapp.com", "databaseURL": "https://kinza-digital-hub-default-rtdb.asia-southeast1.firebasedatabase.app", "projectId": "kinza-digital-hub", "storageBucket": "kinza-digital-hub.firebasestorage.app", "messagingSenderId": "965439409911", "appId": "1:965439409911:web:8d795a853526fa3c96cdf2", "measurementId": "G-5MV4G5HNXW"};
 let app,auth,db;
-try{app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);}catch(e){document.getElementById('page').innerHTML='<div class="card err">Firebase could not start. Check the config in this file.</div>';}
+try{app=initializeApp(firebaseConfig);auth=getAuth(app);db=getFirestore(app);setPersistence(auth,browserLocalPersistence).catch(()=>{});}catch(e){document.getElementById('page').innerHTML='<div class="card err">Firebase could not start. Check the config in this file.</div>';}
+let authReady=false;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>new Intl.NumberFormat().format(Math.round(n||0));
@@ -101,6 +102,8 @@ function renderAnn(){ $('annBanner').innerHTML=announcements.map(a=>'<div class=
 function currentPage(){ const h=location.hash||'#/loop'; if(h.startsWith('#/KinzauraPanel')) return 'admin'; if(h.startsWith('#/admin')){location.hash='#/loop';return 'loop';} return h.replace('#/','').split('?')[0]||'loop'; }
 window.showPage=p=>{location.hash='#/'+p;};
 function render(){ const p=currentPage(); document.querySelectorAll('#bottomNav button').forEach(b=>b.classList.remove('on'));
+ const ab=$('authBtn'); if(ab){ ab.textContent=me?'Sign out':'Sign in'; }
+ if(!authReady){ $('page').innerHTML='<div class="card">Loading your account...</div>'; return; }
  if(!me){ renderLogin(); return; }
  if(!meDoc){ $('page').innerHTML='<div class="card">Loading your account...</div>'; return; }
  if(p==='admin'){ renderAdmin(); return; }
@@ -195,9 +198,10 @@ window.createPlan=async()=>{ await addDoc(collection(db,'plans'),{name:$('plName
 window.toggleGateway=async(id,en)=>{ await updateDoc(doc(db,'gateways',id),{enabled:en}); };
 window.createGateway=async()=>{ const mode=$('gwMode').value; const g={name:$('gwName').value||'New Gateway',mode,feePct:parseFloat($('gwFee').value||0),currency:'USD',enabled:true,order:99,isDefault:false}; if(mode==='Manual'){g.instructions=$('gwInstr').value; g.accountLabel=$('gwAccL').value; g.accountValue=$('gwAccV').value;} else {g.provider=$('gwProv').value; g.apiKey=$('gwKey').value; g.apiSecret=$('gwSec').value; g.webhookUrl=$('gwHook').value; g.apiBaseUrl=$('gwBase').value;} await addDoc(collection(db,'gateways'),g); alert('Gateway created. API fields are admin-only and are never rendered to non-admin users.'); };
 window.exportCSV=k=>{ if(k==='users') csvDownload('users.csv',[['name','email','credits','invites','strikes'],...usersCache.map(u=>[u.name,u.email,u.creditsAvailable,u.invites,u.strikes])]); if(k==='campaigns') csvDownload('campaigns.csv',[['title','platform','target','delivered','status'],...campaigns.map(c=>[c.title,c.platform,c.target,c.delivered,c.status])]); if(k==='payments') csvDownload('payments.csv',[['user','plan','gateway','amount','status'],...payments.map(p=>[p.userName,p.planName,p.gatewayName,p.amount,p.status])]); if(k==='withdraws') csvDownload('withdrawals.csv',[['user','method','amount','status'],...withdraws.map(w=>[w.userName,w.walletMethod,w.amount,w.status])]); if(k==='history') csvDownload('history.csv',[['uid','type','detail','credits','status'],...myHistory.map(h=>[h.uid,h.type,h.detail,h.creditsDelta,h.status])]); };
-window.googleLogin=async()=>{ try{ await signInWithPopup(auth,new GoogleAuthProvider()); }catch(e){ showErr('Google sign-in failed: '+e.message); } };
+window.googleLogin=async()=>{ try{ await setPersistence(auth,browserLocalPersistence); await signInWithPopup(auth,new GoogleAuthProvider()); }catch(e){ showErr('Google sign-in failed: '+e.message); } };
+window.headerAuth=async()=>{ if(me){ await signOutUser(); } else { await googleLogin(); } };
 window.signOutUser=async()=>{ await signOut(auth); location.hash='#/loop'; render(); };
-onAuthStateChanged(auth,async user=>{ me=user; if(!user){meDoc=null; render(); return;} try{ await ensureSettings(); await loadPublic(); const ref=new URLSearchParams(location.search).get('ref'); const uref=await getDoc(doc(db,'users',user.uid)); if(!uref.exists()){ const deviceId=getDeviceId(); const dup=await getDocs(query(collection(db,'users'),where('deviceId','==',deviceId))); let blocked=false,matched=null; if(!dup.empty&&settings.deviceRule){ const other=dup.docs.find(d=>d.id!==user.uid); if(other){ const wl=await getDocs(query(collection(db,'whitelist'),where('deviceId','==',deviceId))); if(wl.empty){ blocked=true; matched=other.data(); await addDoc(collection(db,'attempts'),{attemptedEmail:user.email,attemptedName:user.displayName,deviceId,userAgent:navigator.userAgent,matchedUid:other.id,reason:'Same Device',status:'Blocked',createdAt:now()}); } } }
+onAuthStateChanged(auth,async user=>{ authReady=true; me=user; if(!user){meDoc=null; render(); return;} try{ await ensureSettings(); await loadPublic(); const ref=new URLSearchParams(location.search).get('ref'); const uref=await getDoc(doc(db,'users',user.uid)); if(!uref.exists()){ const deviceId=getDeviceId(); const dup=await getDocs(query(collection(db,'users'),where('deviceId','==',deviceId))); let blocked=false,matched=null; if(!dup.empty&&settings.deviceRule){ const other=dup.docs.find(d=>d.id!==user.uid); if(other){ const wl=await getDocs(query(collection(db,'whitelist'),where('deviceId','==',deviceId))); if(wl.empty){ blocked=true; matched=other.data(); await addDoc(collection(db,'attempts'),{attemptedEmail:user.email,attemptedName:user.displayName,deviceId,userAgent:navigator.userAgent,matchedUid:other.id,reason:'Same Device',status:'Blocked',createdAt:now()}); } } }
  if(blocked){ showModal('<h2>Account Blocked</h2><p>Your device is already linked to another account. Creating a second account is not allowed. If you continue, all your accounts will be banned.</p>'+supportHTML()); meDoc={name:user.displayName,email:user.email,blocked:true,creditsAvailable:0}; render(); return; }
  const code=(user.displayName||'user').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8)+(Math.floor(1000+Math.random()*9000)); let referredBy=null,invitesFrom=null; if(ref){ const q=await getDocs(query(collection(db,'users'),where('referralCode','==',ref))); if(!q.empty){ referredBy=q.docs[0].id; } }
  meDoc={uid:user.uid,name:user.displayName||'',email:user.email||'',photo:user.photoURL||'',referralCode:code,referredBy,deviceId,userAgent:navigator.userAgent,creditsAvailable:settings.signupBonus||50,creditsPending:0,creditsHeld:0,cashBalance:0,invites:0,referralCredits:0,taskCount:0,tasksCompleted:0,creditsEarned:0,strikes:0,streak:0,lastBonusDate:'',codeChanges:0,createdAt:now(),banned:false}; await setDoc(doc(db,'users',user.uid),meDoc); await addHistory(user.uid,'signup','Signup bonus',settings.signupBonus||50,0,null,'Paid'); if(referredBy){ await updateDoc(doc(db,'users',referredBy),{invites:increment(1),referralCredits:increment(settings.referralReward||50),creditsAvailable:increment(settings.referralReward||50)}); await addHistory(referredBy,'referral','Referral reward from '+meDoc.name,(settings.referralReward||50),0,null,'Paid'); }
@@ -209,7 +213,7 @@ onAuthStateChanged(auth,async user=>{ me=user; if(!user){meDoc=null; render(); r
  onSnapshot(query(collection(db,'tickets'),where('uid','==',user.uid)),s=>{tickets=s.docs.map(d=>({id:d.id,...d.data()})); render();});
  onSnapshot(collection(db,'users'),s=>{usersCache=s.docs.map(d=>({id:d.id,...d.data()}));});
  await releasePending(); await autoApproveOwner(); render();
- }catch(e){ showErr('Could not load your account. If this is a Firestore permission error, set the Firestore rules from firestore.rules in the Firebase console, then reload. Error: '+e.message); renderLogin(); } });
+ }catch(e){ showErr('Could not load your account. If this is a Firestore permission error, set the Firestore rules from firestore.rules in the Firebase console, then reload. Error: '+e.message); if(meDoc){ render(); } else { $('page').innerHTML='<div class="card err">Could not load your account. Please reload the page. You are still signed in.</div>'; } } });
 window.addEventListener('hashchange',render);
 if(location.hash.startsWith('#/admin')) location.hash='#/loop';
 render();
